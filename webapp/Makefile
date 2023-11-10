@@ -4,19 +4,20 @@ COMMIT_HASH=$(shell git rev-parse HEAD)
 WEBHOOK_URL=$(shell cat .env | grep WEBHOOK_URL | cut -d '=' -f 2)
 
 prepare:
-	docker-compose exec mysql /bin/bash -c "echo -n > /var/log/mysql/mysql-slow.log"
-	docker-compose exec nginx /bin/bash -c "echo -n > /var/log/nginx/_access.log"
+	ssh -i ~/.ssh/id_ed25519 isucon@54.249.186.113 "echo -n > /var/log/mysql/mysql-slow.log"
+	ssh -i ~/.ssh/id_ed25519 isucon@54.249.186.113 "echo -n > /var/log/nginx/access.log"
+	mkdir -p log
 
 analyze:
 	make slowquery & make accesslog
 
 slowquery: log bin/pt-query-digest
-	docker compose cp mysql:/var/log/mysql/mysql-slow.log log/slow.log
+	scp -i ~/.ssh/id_ed25519 isucon@54.249.186.113:/var/log/mysql/mysql-slow.log log/slow.log
 	./bin/pt-query-digest log/slow.log > log/analyzed-slow.log
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "slow query", "content": "commit hash: $(COMMIT_HASH)"}' -F 'file=@log/analyzed-slow.log' $(WEBHOOK_URL)
 
 accesslog: log bin/alp
-	docker compose cp nginx:/var/log/nginx/_access.log log/access.log
+	scp -i ~/.ssh/id_ed25519 isucon@54.249.186.113:/var/log/nginx/access.log log/access.log
 	./bin/alp json \
 	  --sort sum -r \
 	  -m "/posts/[0-9]+,/@\w+,/image/\d+" \
