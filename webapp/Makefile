@@ -14,26 +14,32 @@ prepare:
 	ssh -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS3) "echo -n > /var/log/mysql/mysql-slow.log"
 	ssh -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS3) "echo -n > /var/log/nginx/access.log"
 
+# 並行処理されてうまくいかないので1台ずつ実行する方が良いかも
 analyze:
 	make slowquery & make accesslog
 
-slowquery: log bin/pt-query-digest
-	rm log/slow.log log/analyzed-slow.log
+slowquery:
+	make slowquery1 & make slowquery2 & make slowquery3
+
+accesslog:
+	make accesslog1 & make accesslog2 & make accesslog3
+
+slowquery1: log bin/pt-query-digest
 	scp -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS1):/var/log/mysql/mysql-slow.log log/slow.log
 	./bin/pt-query-digest log/slow.log > log/analyzed-slow.log
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "slow query$(IP_ADDRESS1)", "content": "commit hash: $(COMMIT_HASH) \n IP: $(IP_ADDRESS1)"}' -F 'file=@log/analyzed-slow.log' $(WEBHOOK_URL)
 
-	rm log/slow.log log/analyzed-slow.log
+slowquery2: log bin/pt-query-digest
 	scp -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS2):/var/log/mysql/mysql-slow.log log/slow.log
 	./bin/pt-query-digest log/slow.log > log/analyzed-slow.log
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "slow query$(IP_ADDRESS2)", "content": "commit hash: $(COMMIT_HASH) \n IP: $(IP_ADDRESS2)"}' -F 'file=@log/analyzed-slow.log' $(WEBHOOK_URL)
 
-	rm log/slow.log log/analyzed-slow.log
+slowquery3: log bin/pt-query-digest
 	scp -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS3):/var/log/mysql/mysql-slow.log log/slow.log
 	./bin/pt-query-digest log/slow.log > log/analyzed-slow.log
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "slow query$(IP_ADDRESS3)", "content": "commit hash: $(COMMIT_HASH) \n IP: $(IP_ADDRESS3)"}' -F 'file=@log/analyzed-slow.log' $(WEBHOOK_URL)
 
-accesslog: log bin/alp
+accesslog1: log bin/alp
 	scp -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS1):/var/log/nginx/access.log log/access.log
 	./bin/alp json \
 	  --sort sum -r \
@@ -42,6 +48,7 @@ accesslog: log bin/alp
 	  < log/access.log > log/analyzed-access.log
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "alp$(IP_ADDRESS1)", "content": "commit hash: $(COMMIT_HASH) \n IP: $(IP_ADDRESS1)"}' -F 'file=@log/analyzed-access.log' $(WEBHOOK_URL)
 
+accesslog2: log bin/alp
 	scp -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS2):/var/log/nginx/access.log log/access.log
 	./bin/alp json \
 	  --sort sum -r \
@@ -50,6 +57,7 @@ accesslog: log bin/alp
 	  < log/access.log > log/analyzed-access.log
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "alp$(IP_ADDRESS2)", "content": "commit hash: $(COMMIT_HASH) \n IP: $(IP_ADDRESS2)"}' -F 'file=@log/analyzed-access.log' $(WEBHOOK_URL)
 
+accesslog3: log bin/alp
 	scp -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS3):/var/log/nginx/access.log log/access.log
 	./bin/alp json \
 	  --sort sum -r \
