@@ -6,7 +6,6 @@ WEBHOOK_URL=$(shell cat .env | grep WEBHOOK_URL | cut -d '=' -f 2)
 prepare:
 	ssh -i ~/.ssh/id_ed25519 isucon@54.249.186.113 "echo -n > /var/log/mysql/mysql-slow.log"
 	ssh -i ~/.ssh/id_ed25519 isucon@54.249.186.113 "echo -n > /var/log/nginx/access.log"
-	mkdir -p log
 
 analyze:
 	make slowquery & make accesslog
@@ -26,13 +25,13 @@ accesslog: log bin/alp
 	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "alp", "content": "commit hash: $(COMMIT_HASH)"}' -F 'file=@log/analyzed-access.log' $(WEBHOOK_URL)
 
 bin/alp: bin
-	wget -N -P bin https://github.com/tkuchiki/alp/releases/download/v1.0.21/alp_$(OS)_$(ARCH).zip
-	unzip -d bin -o bin/alp_$(OS)_$(ARCH).zip
-	rm bin/alp_$(OS)_$(ARCH).zip
+	curl -o bin/alp.zip -L https://github.com/tkuchiki/alp/releases/download/v1.0.21/alp_$(OS)_$(ARCH).zip
+	unzip -d bin -o bin/alp.zip
+	rm bin/alp.zip
 	chmod +x bin/alp
 
 bin/pt-query-digest: bin
-	wget -N -P bin percona.com/get/pt-query-digest
+	curl -o bin/pt-query-digest -LO percona.com/get/pt-query-digest
 	chmod +x bin/pt-query-digest
 
 log:
