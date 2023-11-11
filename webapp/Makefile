@@ -6,6 +6,9 @@ IP_ADDRESS1=$(shell cat .env | grep IP_ADDRESS1 | cut -d '=' -f 2)
 IP_ADDRESS2=$(shell cat .env | grep IP_ADDRESS2 | cut -d '=' -f 2)
 IP_ADDRESS3=$(shell cat .env | grep IP_ADDRESS3 | cut -d '=' -f 2)
 
+webhooktest:
+	curl -X POST -H 'Content-Type: multipart/form-data' -F 'payload_json={"username": "webhookテストおじさん", "content": "webhookテストだよ"}' $(WEBHOOK_URL)
+
 prepare:
 	ssh -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS1) "echo -n > /var/log/mysql/mysql-slow.log"
 	ssh -i ~/.ssh/id_ed25519 isucon@$(IP_ADDRESS1) "echo -n > /var/log/nginx/access.log"
