@@ -53,7 +53,7 @@ type Post struct {
 	CreatedAt    time.Time `db:"created_at"`
 	CommentCount int
 	Comments     []Comment
-	User         User
+	User         User `db:"user"`
 	CSRFToken    string
 }
 
@@ -171,7 +171,7 @@ func getFlash(w http.ResponseWriter, r *http.Request, key string) string {
 	}
 }
 
-func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
+func makePostsFixed(results []Post, csrfToken string, allComments bool) ([]Post, error) {
 	var posts []Post
 
 	for _, p := range results {
@@ -217,6 +217,44 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 		if len(posts) >= postsPerPage {
 			break
 		}
+	}
+
+	return posts, nil
+}
+
+func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, error) {
+	var posts []Post
+
+	for _, p := range results {
+		err := db.Get(&p.CommentCount, "SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?", p.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		query := "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC"
+		if !allComments {
+			query += " LIMIT 3"
+		}
+		var comments []Comment
+		err = db.Select(&comments, query, p.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		for i := 0; i < len(comments); i++ {
+			err := db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// reverse
+		for i, j := 0, len(comments)-1; i < j; i, j = i+1, j-1 {
+			comments[i], comments[j] = comments[j], comments[i]
+		}
+
+		p.Comments = comments
+		p.CSRFToken = csrfToken
 	}
 
 	return posts, nil
@@ -386,12 +424,18 @@ func getIndex(w http.ResponseWriter, r *http.Request) {
 
 	results := []Post{}
 
-	err := db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` ORDER BY `created_at` DESC")
+	err := db.Select(
+		&results,
+		"SELECT p.id AS `id`, p.user_id AS `user_id`, p.body AS `body`, p.mime AS `mime`, p.created_at AS `created_at`, u.account_name AS `user.account_name`, u.id AS `user.id` FROM posts AS p JOIN users AS u ON p.user_id = u.id WHERE u.del_flg = 0 ORDER BY p.created_at DESC LIMIT ?",
+		postsPerPage,
+	)
+	//err := db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` ORDER BY `created_at` DESC")
 	if err != nil {
 		log.Print(err)
 		return
 	}
 
+	//posts, err := makePostsFixed(results, getCSRFToken(r), false)
 	posts, err := makePosts(results, getCSRFToken(r), false)
 	if err != nil {
 		log.Print(err)
@@ -432,7 +476,13 @@ func getAccountName(w http.ResponseWriter, r *http.Request) {
 
 	results := []Post{}
 
-	err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC", user.ID)
+	err = db.Select(
+		&results,
+		"SELECT p.id AS `id`, p.user_id AS `user_id`, p.body AS `body`, p.mime AS `mime`, p.created_at AS `created_at`, u.account_name AS `user.account_name`, u.id AS `user.id` FROM posts AS p JOIN users AS u ON p.user_id = u.id WHERE u.del_flg = 0 AND p.user_id = ? ORDER BY p.created_at DESC LIMIT ?",
+		user.ID,
+		postsPerPage,
+	)
+	//err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC", user.ID)
 	if err != nil {
 		log.Print(err)
 		return
@@ -520,7 +570,12 @@ func getPosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= ? ORDER BY `created_at` DESC", t.Format(ISO8601Format))
+	err = db.Select(
+		&results,
+		"SELECT p.id AS `id`, p.user_id AS `user_id`, p.body AS `body`, p.mime AS `mime`, p.created_at AS `created_at`, u.account_name AS `user.account_name`, u.id AS `user.id` FROM posts AS p JOIN users AS u ON p.user_id = u.id WHERE u.del_flg = 0 AND p.created_at <= ? ORDER BY p.created_at",
+		t.Format(ISO8601Format),
+	)
+	//err = db.Select(&results, "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= ? ORDER BY `created_at` DESC", t.Format(ISO8601Format))
 	if err != nil {
 		log.Print(err)
 		return
@@ -556,7 +611,12 @@ func getPostsID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := []Post{}
-	err = db.Select(&results, "SELECT * FROM `posts` WHERE `id` = ?", pid)
+	err = db.Select(
+		&results,
+		"SELECT p.id AS `id`, p.user_id AS `user_id`, p.body AS `body`, p.mime AS `mime`, p.created_at AS `created_at`, u.account_name AS `user.account_name`, u.id AS `user.id` FROM posts AS p JOIN users AS u ON p.user_id = u.id WHERE u.del_flg = 0 AND p.id = ? ORDER BY p.created_at",
+		pid,
+	)
+	//err = db.Select(&results, "SELECT * FROM `posts` WHERE `id` = ?", pid)
 	if err != nil {
 		log.Print(err)
 		return
@@ -865,6 +925,32 @@ func main() {
 	if err := os.Mkdir("/home/public/image", 0777); err != nil && !os.IsExist(err) {
 		log.Fatal(err)
 	}
+
+	//time.Sleep(3 * time.Second)
+	//
+	//files, err := os.ReadDir("/home/golang/migrate")
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//migrateFiles := map[int]string{}
+	//for _, file := range files {
+	//	content, err := os.ReadFile("/home/golang/migrate/" + file.Name())
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	version, err := strconv.Atoi(strings.Split(file.Name(), "_")[0])
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	migrateFiles[version] = string(content)
+	//}
+	//
+	//schemaMigration := db.MustExec("SELECT * FROM schema_migrations LIMIT 1")
+	//
+	//for key, value := range migrateFiles {
+	//	db.MustExec(value)
+	//	db.MustExec("UPDATE schema_migrations SET version = ?", key)
+	//}
 
 	r := chi.NewRouter()
 
